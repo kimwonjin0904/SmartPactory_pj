@@ -2,20 +2,58 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:lvc="clr-namespace:LiveChartsCore.SkiaSharpView.WPF;assembly=LiveChartsCore.SkiaSharpView.WPF"
-        Title="센서 모니터링" Height="600" Width="800">
+        Title="Sensor Monitor App" Height="650" Width="1000">
 
-    <Grid Margin="10">
-        <StackPanel>
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
 
-            <TextBlock Text="실시간 센서 모니터링" FontSize="20" FontWeight="Bold" Margin="0,0,0,10" />
-            <TextBlock x:Name="LatestValueText" FontSize="14" FontWeight="SemiBold" Foreground="DarkBlue" />
-            <TextBlock x:Name="WarningTextBlock" FontSize="14" FontWeight="Bold" Foreground="Red" Margin="0,5,0,0" />
+        <TextBlock x:Name="WarningTextBlock"
+                   Grid.Row="0"
+                   Foreground="Red"
+                   FontSize="16"
+                   FontWeight="Bold"
+                   Visibility="Collapsed"
+                   Text="⚠ 온도가 기준치를 초과했습니다!"
+                   Margin="0,0,0,10"/>
 
-            <DataGrid x:Name="SensorDataGrid" AutoGenerateColumns="True" Height="250" Margin="0,10,0,0" />
+        <StackPanel Grid.Row="1" Orientation="Vertical" Margin="0,0,0,10">
+            <TextBlock Text="통계 정보 및 실시간 값" FontWeight="Bold" FontSize="18" Margin="0,0,0,10"/>
+            <TextBlock x:Name="LatestValueText" FontSize="14" FontWeight="SemiBold" Foreground="DarkBlue" Margin="5"/>
 
-            <TextBlock Text="온도/습도 그래프" FontSize="16" FontWeight="Bold" Margin="0,20,0,5" />
+            <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                <TextBlock x:Name="MinTempText" Text="최소 온도: " Margin="5"/>
+                <TextBlock x:Name="MaxTempText" Text="최대 온도: " Margin="5"/>
+                <TextBlock x:Name="AvgTempText" Text="평균 온도: " Margin="5"/>
+            </StackPanel>
 
-            <lvc:CartesianChart x:Name="SensorChart" Height="200" />
+            <StackPanel Orientation="Horizontal" Margin="0,5,0,0">
+                <TextBlock x:Name="MinHumText" Text="최소 습도: " Margin="5"/>
+                <TextBlock x:Name="MaxHumText" Text="최대 습도: " Margin="5"/>
+                <TextBlock x:Name="AvgHumText" Text="평균 습도: " Margin="5"/>
+            </StackPanel>
         </StackPanel>
+
+        <DataGrid x:Name="SensorDataGrid"
+                  Grid.Row="2"
+                  AutoGenerateColumns="True"
+                  Height="200"
+                  Margin="0,10,0,10" />
+
+        <lvc:CartesianChart Grid.Row="3"
+                            Series="{Binding TempSeries}"
+                            XAxes="{Binding Labels}"
+                            Height="200"
+                            Margin="0,10,0,0"/>
+
+        <lvc:CartesianChart Grid.Row="3"
+                            Series="{Binding HumSeries}"
+                            XAxes="{Binding Labels}"
+                            Height="200"
+                            Margin="0,220,0,0"/>
     </Grid>
 </Window>
