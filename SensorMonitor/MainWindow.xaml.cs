@@ -18,7 +18,7 @@ using System.Windows;
 using System.Windows.Media;
 
 namespace SensorMonitorApp
-{
+{//잔디확인
     public partial class MainWindow : Window, INotifyPropertyChanged
     {
         private TcpListener _server;
