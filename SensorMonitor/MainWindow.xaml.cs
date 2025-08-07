@@ -8,6 +8,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -23,9 +24,19 @@ namespace SensorMonitorApp
     {
         private TcpListener _server;
         private System.Timers.Timer _refreshTimer;
-        private string _connStr = "User Id=kwj;Password=kwj;Data Source=192.168.25.6:1521/xe";
-        private const double LiveTempWarningThreshold = 24.0;
-        private const double StatTempWarningThreshold = 30.0;
+        private string _connStr = "User Id=kwj;Password=kwj;Data Source=192.168.25.47:1521/xe";
+
+        //임계값 정의
+        // 현재온도경고 
+        private const double LiveTempWarningThreshold = 25.0;
+        private const double StatTempWarningThreshold = 40.0;
+
+        // 초과시 event_log.txt에 기록
+        private const double AnomalyTempThreshold = 25.0;  //온도
+        private const double AnomalyHumidityThreshold = 40.0; //습도
+
+        // 설비 상태 변수
+        private bool isEquipmentRunning = false;
 
         public ISeries[] TempSeries { get; set; }
         public ISeries[] HumSeries { get; set; }
@@ -37,9 +48,10 @@ namespace SensorMonitorApp
             InitCharts();
             DataContext = this;
 
-            LoadSensorStatistics();
+            LogOperation("애플리케이션 시작됨");
             StartTcpServer();
-            StartTimer();
+
+         
         }
 
         private void InitCharts()
@@ -73,17 +85,17 @@ namespace SensorMonitorApp
             {
                 _server = new TcpListener(IPAddress.Any, 9999);
                 _server.Start();
-                Task.Run(() =>
+                Task.Run(async () =>
                 {
                     while (true)
                     {
                         try
                         {
-                            using (TcpClient client = _server.AcceptTcpClient())
+                            using (TcpClient client = await _server.AcceptTcpClientAsync())
                             using (NetworkStream stream = client.GetStream())
                             {
                                 byte[] buffer = new byte[1024];
-                                int bytesRead = stream.Read(buffer, 0, buffer.Length);
+                                int bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
                                 string received = Encoding.UTF8.GetString(buffer, 0, bytesRead);
 
                                 var jsonDoc = JsonDocument.Parse(received);
@@ -92,7 +104,12 @@ namespace SensorMonitorApp
                                 double hum = root.GetProperty("humidity").GetDouble();
                                 string timestamp = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
 
-                                SaveToDatabase(timestamp, temp, hum);
+                                Dispatcher.Invoke(() =>
+                                {
+                                    SaveToDatabase(timestamp, temp, hum);
+                                    // TCP 수신 시 이상 징후 체크
+                                    CheckAndLogAnomaly(temp, hum);
+                                });
                             }
                         }
                         catch (Exception ex)
@@ -108,6 +125,7 @@ namespace SensorMonitorApp
             }
         }
 
+        // 데이터베이스에 센서 데이터를 저장하는 메서드
         private void SaveToDatabase(string timestamp, double temp, double hum)
         {
             try
@@ -129,7 +147,8 @@ namespace SensorMonitorApp
             }
         }
 
-        private void StartTimer()
+        // UI 데이터를 새로고침하는 타이머 시작
+        private void StartRefreshTimer()
         {
             _refreshTimer = new System.Timers.Timer(2000);
             _refreshTimer.Elapsed += (s, e) => Dispatcher.Invoke(() => {
@@ -137,6 +156,12 @@ namespace SensorMonitorApp
                 LoadRecentSensorData();
             });
             _refreshTimer.Start();
+        }
+
+        // UI 데이터를 새로고침하는 타이머 중지
+        private void StopRefreshTimer()
+        {
+            _refreshTimer?.Stop();
         }
 
         private void LoadSensorStatistics()
@@ -199,7 +224,9 @@ namespace SensorMonitorApp
                 {
                     conn.Open();
 
-                    string recentDataQuery = "SELECT * FROM (SELECT * FROM SENSOR_DATA ORDER BY ID DESC) WHERE ROWNUM <= 10 ORDER BY ID ASC";
+                    string recentDataQuery = "SELECT * " +
+                        "FROM (SELECT * FROM SENSOR_DATA ORDER BY ID DESC) " +
+                        "WHERE ROWNUM <= 10 ORDER BY ID ASC";
                     var adapter = new OracleDataAdapter(recentDataQuery, conn);
                     var dtRecent = new DataTable();
                     adapter.Fill(dtRecent);
@@ -209,9 +236,9 @@ namespace SensorMonitorApp
                     if (dtRecent.Rows.Count > 0)
                     {
                         var latest = dtRecent.Rows[dtRecent.Rows.Count - 1];
-                        double latestTemp = Convert.ToDouble(latest["TEMPERATURE"]);
-                        double latestHum = Convert.ToDouble(latest["HUMIDITY"]);
-                        string latestTimestamp = Convert.ToDateTime(latest["TIMESTAMP"]).ToString("yyyy-MM-dd HH:mm:ss");
+                        double latestTemp = (latest["TEMPERATURE"] == DBNull.Value) ? 0.0 : Convert.ToDouble(latest["TEMPERATURE"]);
+                        double latestHum = (latest["HUMIDITY"] == DBNull.Value) ? 0.0 : Convert.ToDouble(latest["HUMIDITY"]);
+                        string latestTimestamp = (latest["TIMESTAMP"] == DBNull.Value) ? "N/A" : Convert.ToDateTime(latest["TIMESTAMP"]).ToString("yyyy-MM-dd HH:mm:ss");
 
                         LatestValueText.Text = $"⏱️ {latestTimestamp} | 🌡️ {latestTemp:F1}°C | 💧 {latestHum:F1}%";
 
@@ -229,9 +256,18 @@ namespace SensorMonitorApp
 
                     foreach (DataRow row in dtRecent.Rows)
                     {
-                        tempValues.Add(Convert.ToDouble(row["TEMPERATURE"]));
-                        humValues.Add(Convert.ToDouble(row["HUMIDITY"]));
-                        labels.Add(Convert.ToDateTime(row["TIMESTAMP"]).ToString("HH:mm:ss"));
+                        if (row["TEMPERATURE"] != DBNull.Value)
+                        {
+                            tempValues.Add(Convert.ToDouble(row["TEMPERATURE"]));
+                        }
+                        if (row["HUMIDITY"] != DBNull.Value)
+                        {
+                            humValues.Add(Convert.ToDouble(row["HUMIDITY"]));
+                        }
+                        if (row["TIMESTAMP"] != DBNull.Value)
+                        {
+                            labels.Add(Convert.ToDateTime(row["TIMESTAMP"]).ToString("HH:mm:ss"));
+                        }
                     }
 
                     ((LineSeries<double>)TempSeries[0]).Values = tempValues;
@@ -249,10 +285,95 @@ namespace SensorMonitorApp
             }
         }
 
+        
+        // 추가 기능들
+        // 가동/정지 버튼 클릭 이벤트 핸들러
+        private void ToggleEquipmentStatusButton_Click(object sender, RoutedEventArgs e)
+        {
+            isEquipmentRunning = !isEquipmentRunning;
+
+            if (isEquipmentRunning)
+            {
+                EquipmentStatusText.Text = "가동";
+                EquipmentStatusText.Foreground = Brushes.Green;
+                LogOperation("설비 가동 시작");
+                StartRefreshTimer(); 
+            }
+            else
+            {
+                EquipmentStatusText.Text = "정지";
+                EquipmentStatusText.Foreground = Brushes.Red;
+                LogOperation("설비 정지");
+                StopRefreshTimer(); 
+            }
+        }
+
+        // 센서 이상 징후를 감지하고 기록
+        private void CheckAndLogAnomaly(double temp, double hum)
+        {
+            if (temp > AnomalyTempThreshold)
+            {
+                string message = $"온도 이상 징후 감지: {temp:F1}°C (임계값: {AnomalyTempThreshold}°C)";
+                LogEvent(message);
+            }
+
+            if (hum > AnomalyHumidityThreshold)
+            {
+                string message = $"습도 이상 징후 감지: {hum:F1}% (임계값: {AnomalyHumidityThreshold}%)";
+                LogEvent(message);
+            }
+        }
+
+        // 공통 이벤트 기록 (파일 및 ListBox) 기능 추가 한거
+        private void LogEvent(string message)
+        {
+            try
+            {
+                string logFilePath = "event_log.txt";
+                string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - [이상 징후] {message}\n";
+                File.AppendAllText(logFilePath, logMessage);
+
+                // UI로그 추가
+                EventLogListBox.Items.Add($"[이상 징후] {message}");
+                EventLogListBox.ScrollIntoView(EventLogListBox.Items[EventLogListBox.Items.Count - 1]);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"센서 이상 로그 저장 오류: {ex.Message}");
+            }
+        }
+
+        // 작업 이력을 기록 (운영일지) 기능한거
+        private void LogOperation(string message)
+        {
+            try
+            {
+                string logFilePath = "operation_log.txt";
+                string logMessage = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss} - [운영 기록] {message}\n";
+                File.AppendAllText(logFilePath, logMessage);
+
+                // UI로그 추가
+                EventLogListBox.Items.Add($"[운영 기록] {message}");
+                EventLogListBox.ScrollIntoView(EventLogListBox.Items[EventLogListBox.Items.Count - 1]);
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"운영 로그 저장 오류: {ex.Message}");
+            }
+        }
+
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged(string name)
         {
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+
+        // 애플리케이션 종료 시 로그 기록
+        protected override void OnClosed(EventArgs e)
+        {
+            base.OnClosed(e);
+            LogOperation("애플리케이션 종료됨");
+            _server?.Stop(); 
         }
     }
 }
