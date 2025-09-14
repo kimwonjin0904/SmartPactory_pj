@@ -103,7 +103,7 @@ namespace SensorMonitorApp
 
                                 Dispatcher.Invoke(() =>
                                 {
-                                    if (isEquipmentRunning) // ✅ 설비 가동 중일 때만 데이터 반영
+                                    if (isEquipmentRunning) //  설비 가동 중일 때만 데이터 반영
                                     {
                                         SaveToDatabase(timestamp, temp, hum);
                                         CheckAndLogAnomaly(temp, hum);
