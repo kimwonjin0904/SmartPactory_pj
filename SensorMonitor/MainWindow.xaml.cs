@@ -75,7 +75,7 @@ namespace SensorMonitorApp
             Labels = new List<string>();
         }
 
-        // TCP 서버 (EIF/ECS 역할: 설비 ↔ MES 인터페이스)
+        // TCP 서버 (EIF,ECS 역할: 설비 ↔ MES 인터페이스)
         private void StartTcpServer()
         {
             try
